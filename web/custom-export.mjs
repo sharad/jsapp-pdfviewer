@@ -1,8 +1,11 @@
-function waitForViewer() {
+console.log("CUSTOM EXPORT FILE LOADED");
+
+function waitForApp() {
   return new Promise(resolve => {
     const check = () => {
       if (window.PDFViewerApplication &&
-          window.PDFViewerApplication.initialized) {
+          window.PDFViewerApplication.pdfThumbnailViewer &&
+          window.PDFViewerApplication.pdfDocument) {
         resolve(window.PDFViewerApplication);
       } else {
         setTimeout(check, 100);
@@ -13,47 +16,113 @@ function waitForViewer() {
 }
 
 async function init() {
-  const PDFViewerApplication = await waitForViewer();
 
-  const eventBus = PDFViewerApplication.eventBus;
+  const app = await waitForApp();
+  console.log("PDFViewerApplication ready");
 
-  eventBus.on("pagesloaded", () => {
-    setupSelection(PDFViewerApplication);
-  });
-}
-
-function setupSelection(PDFViewerApplication) {
-
-  const thumbnailContainer = document.getElementById("thumbnailView");
   const selectedPages = new Set();
 
-  addExportButton(PDFViewerApplication, selectedPages);
+  addExportButton(app, selectedPages);
 
-  thumbnailContainer.addEventListener("click", (e) => {
+  attachThumbnailLogic(app, selectedPages);
+}
 
-    const thumb = e.target.closest(".thumbnail");
-    if (!thumb) return;
 
-    const pageNumber = parseInt(thumb.dataset.pageNumber);
 
-    if (e.ctrlKey) {
-      if (selectedPages.has(pageNumber)) {
-        selectedPages.delete(pageNumber);
-        thumb.style.outline = "";
+function attachThumbnailLogic(app, selectedPages) {
+
+  const thumbnails = app.pdfThumbnailViewer._thumbnails;
+
+  thumbnails.forEach(thumbnail => {
+
+    const div = thumbnail.div;
+
+    div.addEventListener("click", (e) => {
+
+      const pageNumber = thumbnail.id;
+
+      if (e.ctrlKey) {
+        // multi select
+        if (selectedPages.has(pageNumber)) {
+          selectedPages.delete(pageNumber);
+        } else {
+          selectedPages.add(pageNumber);
+        }
       } else {
+        // normal click → behave like PDF.js default
+        selectedPages.clear();
         selectedPages.add(pageNumber);
-        thumb.style.outline = "3px solid red";
       }
+
+      refreshVisualSelection(app, selectedPages);
+      updateCounter(selectedPages);
+    });
+
+  });
+
+  // IMPORTANT: reapply selection whenever thumbnails re-render
+  app.eventBus.on("pagerendered", () => {
+    refreshVisualSelection(app, selectedPages);
+  });
+
+  console.log("Thumbnail logic attached");
+}
+
+
+function updateCounter(selectedPages) {
+  let counter = document.getElementById("selectionCounter");
+  if (!counter) {
+    counter = document.createElement("span");
+    counter.id = "selectionCounter";
+    counter.style.marginLeft = "10px";
+    document.getElementById("toolbarViewerRight").appendChild(counter);
+  }
+  counter.textContent = `${selectedPages.size} selected`;
+}
+
+function refreshVisualSelection(app, selectedPages) {
+
+  app.pdfThumbnailViewer._thumbnails.forEach(thumbnail => {
+
+    const ring = thumbnail.div.querySelector(".thumbnailSelectionRing");
+    if (!ring) return;
+
+    if (selectedPages.has(thumbnail.id)) {
+      ring.classList.add("customSelected");
+    } else {
+      ring.classList.remove("customSelected");
     }
 
   });
 }
 
-function addExportButton(PDFViewerApplication, selectedPages) {
+
+function toggle(div, pageNumber, selectedPages) {
+
+  if (selectedPages.has(pageNumber)) {
+    selectedPages.delete(pageNumber);
+    div.classList.remove("customSelected");
+  } else {
+    selectedPages.add(pageNumber);
+    div.classList.add("customSelected");
+  }
+}
+
+function clearAll(app, selectedPages) {
+
+  selectedPages.clear();
+
+  app.pdfThumbnailViewer._thumbnails.forEach(thumbnail => {
+    thumbnail.div.classList.remove("customSelected");
+  });
+}
+
+function addExportButton(app, selectedPages) {
 
   if (document.getElementById("exportSelectedBtn")) return;
 
   const toolbar = document.getElementById("toolbarViewerRight");
+  if (!toolbar) return;
 
   const btn = document.createElement("button");
   btn.id = "exportSelectedBtn";
@@ -67,8 +136,7 @@ function addExportButton(PDFViewerApplication, selectedPages) {
       return;
     }
 
-    const pdfDocument = PDFViewerApplication.pdfDocument;
-    const data = await pdfDocument.getData();
+    const data = await app.pdfDocument.getData();
 
     const pdfLibDoc = await PDFLib.PDFDocument.load(data);
     const newPdf = await PDFLib.PDFDocument.create();
@@ -97,4 +165,5 @@ function addExportButton(PDFViewerApplication, selectedPages) {
 }
 
 init();
+
 
