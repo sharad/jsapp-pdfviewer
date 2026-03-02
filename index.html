@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>PDF Page Selector</title>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+  pdfjsLib.GlobalWorkerOptions.workerSrc =
+    "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+</script>
+
+<script src="https://unpkg.com/pdf-lib/dist/pdf-lib.min.js"></script>
+
+<style>
+body { font-family: sans-serif; margin: 20px; }
+#dropZone {
+  border: 2px dashed #888;
+  padding: 40px;
+  text-align: center;
+  cursor: pointer;
+}
+.page {
+  display: inline-block;
+  margin: 10px;
+  border: 3px solid transparent;
+  cursor: pointer;
+}
+.page.selected {
+  border: 3px solid red;
+}
+canvas { display: block; }
+button {
+  padding: 10px 20px;
+  margin-top: 20px;
+}
+</style>
+</head>
+<body>
+
+<h2>Select or Drag PDF</h2>
+<div id="dropZone">Click or Drag PDF Here</div>
+<input type="file" id="fileInput" accept="application/pdf" style="display:none">
+<div id="pages"></div>
+<button id="exportBtn" disabled>Export Selected Pages</button>
+
+<script>
+
+ let pdfDoc = null;
+ let originalBytes = null;
+ let selectedPages = new Set();
+
+ const dropZone = document.getElementById("dropZone");
+ const fileInput = document.getElementById("fileInput");
+ const pagesDiv = document.getElementById("pages");
+ const exportBtn = document.getElementById("exportBtn");
+
+ dropZone.onclick = () => fileInput.click();
+
+ fileInput.onchange = e => {
+     if (e.target.files.length > 0) {
+         loadPDF(e.target.files[0]);
+     }
+ };
+
+ dropZone.addEventListener("dragover", e => e.preventDefault());
+
+ dropZone.addEventListener("drop", e => {
+     e.preventDefault();
+     if (e.dataTransfer.files.length > 0) {
+         loadPDF(e.dataTransfer.files[0]);
+     }
+ });
+
+
+ async function loadPDF(file) {
+  if (file.type !== "application/pdf") {
+    alert("Not a PDF file.");
+    return;
+  }
+
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+
+    // 🔥 Make two independent copies
+    const renderBuffer = arrayBuffer.slice(0);
+    const exportBuffer = arrayBuffer.slice(0);
+
+    originalBytes = exportBuffer;
+
+    const loadingTask = pdfjsLib.getDocument({ data: renderBuffer });
+    pdfDoc = await loadingTask.promise;
+
+    pagesDiv.innerHTML = "";
+    selectedPages.clear();
+    exportBtn.disabled = true;
+
+    for (let i = 1; i <= pdfDoc.numPages; i++) {
+      const page = await pdfDoc.getPage(i);
+      const viewport = page.getViewport({ scale: 0.3 });
+
+      const canvas = document.createElement("canvas");
+      const context = canvas.getContext("2d");
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+
+      await page.render({ canvasContext: context, viewport }).promise;
+
+      const wrapper = document.createElement("div");
+      wrapper.className = "page";
+      wrapper.appendChild(canvas);
+
+      wrapper.onclick = () => {
+        if (selectedPages.has(i - 1)) {
+          selectedPages.delete(i - 1);
+          wrapper.classList.remove("selected");
+        } else {
+          selectedPages.add(i - 1);
+          wrapper.classList.add("selected");
+        }
+        exportBtn.disabled = selectedPages.size === 0;
+      };
+
+      pagesDiv.appendChild(wrapper);
+    }
+
+  } catch (err) {
+    console.error(err);
+    alert("Error loading PDF. See console.");
+  }
+}
+
+
+ exportBtn.onclick = async () => {
+     if (selectedPages.size === 0) return;
+
+     try {
+         const pdfDocLib = await PDFLib.PDFDocument.load(originalBytes);
+         const newPdf = await PDFLib.PDFDocument.create();
+
+         const sortedPages = Array.from(selectedPages).sort((a,b)=>a-b);
+
+         const copiedPages = await newPdf.copyPages(pdfDocLib, sortedPages);
+
+         copiedPages.forEach(p => newPdf.addPage(p));
+
+         const newBytes = await newPdf.save();
+
+         const blob = new Blob([newBytes], { type: "application/pdf" });
+         const url = URL.createObjectURL(blob);
+
+         const a = document.createElement("a");
+         a.href = url;
+         a.download = "selected_pages.pdf";
+         document.body.appendChild(a);
+         a.click();
+         document.body.removeChild(a);
+
+         URL.revokeObjectURL(url);
+
+     } catch (err) {
+         console.error(err);
+         alert("Export failed. See console.");
+     }
+ };
+
+</script>
+</body>
+</html>
+
+
