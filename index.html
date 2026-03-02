@@ -13,104 +13,189 @@ pdfjsLib.GlobalWorkerOptions.workerSrc =
 <script src="https://unpkg.com/pdf-lib/dist/pdf-lib.min.js"></script>
 
 <style>
-body {
-  margin: 0;
-  font-family: sans-serif;
-  height: 100vh;
-  display: flex;
-  flex-direction: column;
-}
+ body {
+     margin: 0;
+     font-family: sans-serif;
+     height: 100vh;
+     display: flex;
+     flex-direction: column;
+     background: #2b2b2b;
+     color: #eee;
+ }
 
-#topbar {
-  padding: 10px;
-  background: #eee;
-}
+ #topbar {
+     padding: 10px;
+     background: #3a3a3a;
+     display: flex;
+     gap: 10px;
+     align-items: center;
+ }
 
-#container {
-  flex: 1;
-  display: flex;
-  overflow: hidden;
-}
+ #container {
+     flex: 1;
+     display: flex;
+     overflow: hidden;
+ }
 
-#thumbnails {
-  width: 220px;
-  overflow-y: auto;
-  border-right: 1px solid #ccc;
-  padding: 10px;
-}
+ #thumbnails {
+     width: 220px;
+     overflow-y: auto;
+     background: #1f1f1f;
+     border-right: 1px solid #444;
+     padding: 10px;
+ }
 
-.thumbnail {
-  margin-bottom: 10px;
-  border: 3px solid transparent;
-  cursor: pointer;
-}
+ .thumbnail {
+     margin-bottom: 12px;
+     padding: 4px;
+     background: #2a2a2a;
+     border-radius: 6px;
+     border: 2px solid #444;
+     cursor: pointer;
+     transition: 0.2s;
+ }
 
-.thumbnail.selected {
-  border: 3px solid red;
-}
+ .thumbnail:hover {
+     border-color: #888;
+ }
 
-#viewer {
-  flex: 1;
-  overflow: auto;
-  display: flex;
-  justify-content: center;
-  align-items: flex-start;
-  padding: 20px;
-  background: #f9f9f9;
-}
+ .thumbnail.selected {
+     border: 2px solid #ff4d4d;
+ }
 
-button {
-  padding: 6px 12px;
-}
+ #viewer {
+     flex: 1;
+     overflow: auto;
+     display: flex;
+     justify-content: center;
+     padding: 30px;
+     background: #2b2b2b;
+ }
+
+ #viewer canvas {
+     box-shadow: 0 0 20px rgba(0,0,0,0.6);
+     background: white;
+     border-radius: 4px;
+ }
+
+ button, input {
+     background: #555;
+     color: white;
+     border: none;
+     padding: 6px 12px;
+     border-radius: 4px;
+ }
+
+ button:hover {
+     background: #777;
+ }
 </style>
+
 </head>
 <body>
 
-<div id="topbar">
-  <input type="file" id="fileInput" accept="application/pdf">
-  <button id="exportBtn" disabled>Export Selected</button>
-</div>
+    <div>
+        <input type="file" id="fileInput" accept="application/pdf">
+        <button id="exportBtn" disabled>Export Selected</button>
 
-<div id="container">
-  <div id="thumbnails"></div>
-  <div id="viewer"></div>
-</div>
+        <span>Page:</span>
+        <input type="number" id="pageNumber" min="1" style="width:70px">
+        <button id="goBtn">Go</button>
+    </div>
 
-<script>
+    <div id="container">
+        <div id="thumbnails"></div>
+        <div id="viewer"></div>
+    </div>
 
- let pdfDoc = null;
- let originalBytes = null;
- let selectedPages = new Set();
- let lastSelected = null;
+    <script>
 
- const fileInput = document.getElementById("fileInput");
- const thumbnailsDiv = document.getElementById("thumbnails");
- const viewerDiv = document.getElementById("viewer");
- const exportBtn = document.getElementById("exportBtn");
+     let pdfDoc = null;
+     let originalBytes = null;
+     let selectedPages = new Set();
+     let lastSelected = null;
 
- fileInput.onchange = e => {
-     if (e.target.files.length > 0) {
-         loadPDF(e.target.files[0]);
+     const fileInput = document.getElementById("fileInput");
+     const thumbnailsDiv = document.getElementById("thumbnails");
+     const viewerDiv = document.getElementById("viewer");
+     const exportBtn = document.getElementById("exportBtn");
+
+     fileInput.onchange = e => {
+         if (e.target.files.length > 0) {
+             loadPDF(e.target.files[0]);
+         }
+     };
+
+     async function loadPDF(file) {
+         const buffer = await file.arrayBuffer();
+
+         const renderBuffer = buffer.slice(0);
+         originalBytes = buffer.slice(0);
+
+         const loadingTask = pdfjsLib.getDocument({ data: renderBuffer });
+         pdfDoc = await loadingTask.promise;
+
+         thumbnailsDiv.innerHTML = "";
+         viewerDiv.innerHTML = "";
+         selectedPages.clear();
+         exportBtn.disabled = true;
+
+         for (let i = 1; i <= pdfDoc.numPages; i++) {
+             const page = await pdfDoc.getPage(i);
+             const viewport = page.getViewport({ scale: 0.25 });
+
+             const canvas = document.createElement("canvas");
+             canvas.width = viewport.width;
+             canvas.height = viewport.height;
+
+             await page.render({
+                 canvasContext: canvas.getContext("2d"),
+                 viewport
+             }).promise;
+
+             const wrapper = document.createElement("div");
+             wrapper.className = "thumbnail";
+             wrapper.appendChild(canvas);
+
+             wrapper.onclick = (event) => {
+                 handleSelection(i - 1, wrapper, event);
+                 showPage(i);
+             };
+
+             thumbnailsDiv.appendChild(wrapper);
+         }
      }
- };
 
- async function loadPDF(file) {
-     const buffer = await file.arrayBuffer();
+     function handleSelection(index, element, event) {
 
-     const renderBuffer = buffer.slice(0);
-     originalBytes = buffer.slice(0);
+         if (event.ctrlKey) {
+             // Multi select
+             if (selectedPages.has(index)) {
+                 selectedPages.delete(index);
+                 element.classList.remove("selected");
+             } else {
+                 selectedPages.add(index);
+                 element.classList.add("selected");
+             }
+         } else {
+             // Single select
+             selectedPages.clear();
+             document.querySelectorAll(".thumbnail")
+                     .forEach(t => t.classList.remove("selected"));
 
-     const loadingTask = pdfjsLib.getDocument({ data: renderBuffer });
-     pdfDoc = await loadingTask.promise;
+             selectedPages.add(index);
+             element.classList.add("selected");
+         }
 
-     thumbnailsDiv.innerHTML = "";
-     viewerDiv.innerHTML = "";
-     selectedPages.clear();
-     exportBtn.disabled = true;
+         lastSelected = index;
+         exportBtn.disabled = selectedPages.size === 0;
+     }
 
-     for (let i = 1; i <= pdfDoc.numPages; i++) {
-         const page = await pdfDoc.getPage(i);
-         const viewport = page.getViewport({ scale: 0.25 });
+     async function showPage(pageNumber) {
+         viewerDiv.innerHTML = "";
+
+         const page = await pdfDoc.getPage(pageNumber);
+         const viewport = page.getViewport({ scale: 1.2 });
 
          const canvas = document.createElement("canvas");
          canvas.width = viewport.width;
@@ -121,87 +206,63 @@ button {
              viewport
          }).promise;
 
-         const wrapper = document.createElement("div");
-         wrapper.className = "thumbnail";
-         wrapper.appendChild(canvas);
-
-         wrapper.onclick = (event) => {
-             handleSelection(i - 1, wrapper, event);
-             showPage(i);
-         };
-
-         thumbnailsDiv.appendChild(wrapper);
+         viewerDiv.appendChild(canvas);
      }
- }
 
- function handleSelection(index, element, event) {
+     exportBtn.onclick = async () => {
 
-     if (event.ctrlKey) {
-         // Multi select
-         if (selectedPages.has(index)) {
-             selectedPages.delete(index);
-             element.classList.remove("selected");
-         } else {
-             selectedPages.add(index);
-             element.classList.add("selected");
+         const pdfDocLib = await PDFLib.PDFDocument.load(originalBytes);
+         const newPdf = await PDFLib.PDFDocument.create();
+
+         const sorted = Array.from(selectedPages).sort((a,b)=>a-b);
+
+         const copied = await newPdf.copyPages(pdfDocLib, sorted);
+
+         copied.forEach(p => newPdf.addPage(p));
+
+         const newBytes = await newPdf.save();
+
+         const blob = new Blob([newBytes], { type: "application/pdf" });
+         const url = URL.createObjectURL(blob);
+
+         const a = document.createElement("a");
+         a.href = url;
+         a.download = "selected_pages.pdf";
+         a.click();
+
+         URL.revokeObjectURL(url);
+     };
+
+
+
+     // =====
+     const pageInput = document.getElementById("pageNumber");
+     const goBtn = document.getElementById("goBtn");
+
+     goBtn.onclick = jumpToPage;
+     pageInput.onkeydown = (e) => {
+         if (e.key === "Enter") jumpToPage();
+     };
+
+     async function jumpToPage() {
+         const pageNum = parseInt(pageInput.value);
+
+         if (!pdfDoc || pageNum < 1 || pageNum > pdfDoc.numPages) {
+             alert("Invalid page number");
+             return;
          }
-     } else {
-         // Single select
-         selectedPages.clear();
-         document.querySelectorAll(".thumbnail")
-                 .forEach(t => t.classList.remove("selected"));
 
-         selectedPages.add(index);
-         element.classList.add("selected");
+         showPage(pageNum);
+
+         const thumbnails = document.querySelectorAll(".thumbnail");
+         const target = thumbnails[pageNum - 1];
+
+         if (target) {
+             target.scrollIntoView({ behavior: "smooth", block: "center" });
+         }
      }
 
-     lastSelected = index;
-     exportBtn.disabled = selectedPages.size === 0;
- }
-
- async function showPage(pageNumber) {
-     viewerDiv.innerHTML = "";
-
-     const page = await pdfDoc.getPage(pageNumber);
-     const viewport = page.getViewport({ scale: 1.2 });
-
-     const canvas = document.createElement("canvas");
-     canvas.width = viewport.width;
-     canvas.height = viewport.height;
-
-     await page.render({
-         canvasContext: canvas.getContext("2d"),
-         viewport
-     }).promise;
-
-     viewerDiv.appendChild(canvas);
- }
-
- exportBtn.onclick = async () => {
-
-     const pdfDocLib = await PDFLib.PDFDocument.load(originalBytes);
-     const newPdf = await PDFLib.PDFDocument.create();
-
-     const sorted = Array.from(selectedPages).sort((a,b)=>a-b);
-
-     const copied = await newPdf.copyPages(pdfDocLib, sorted);
-
-     copied.forEach(p => newPdf.addPage(p));
-
-     const newBytes = await newPdf.save();
-
-     const blob = new Blob([newBytes], { type: "application/pdf" });
-     const url = URL.createObjectURL(blob);
-
-     const a = document.createElement("a");
-     a.href = url;
-     a.download = "selected_pages.pdf";
-     a.click();
-
-     URL.revokeObjectURL(url);
- };
-
-</script>
+    </script>
 </body>
 </html>
 
