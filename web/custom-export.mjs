@@ -1,21 +1,33 @@
-import { PDFViewerApplication } from "./viewer.mjs";
+function waitForViewer() {
+  return new Promise(resolve => {
+    const check = () => {
+      if (window.PDFViewerApplication &&
+          window.PDFViewerApplication.initialized) {
+        resolve(window.PDFViewerApplication);
+      } else {
+        setTimeout(check, 100);
+      }
+    };
+    check();
+  });
+}
 
 async function init() {
-  await PDFViewerApplication.initializedPromise;
+  const PDFViewerApplication = await waitForViewer();
 
   const eventBus = PDFViewerApplication.eventBus;
 
   eventBus.on("pagesloaded", () => {
-    setupSelection();
+    setupSelection(PDFViewerApplication);
   });
 }
 
-function setupSelection() {
+function setupSelection(PDFViewerApplication) {
 
   const thumbnailContainer = document.getElementById("thumbnailView");
   const selectedPages = new Set();
 
-  addExportButton(selectedPages);
+  addExportButton(PDFViewerApplication, selectedPages);
 
   thumbnailContainer.addEventListener("click", (e) => {
 
@@ -37,11 +49,11 @@ function setupSelection() {
   });
 }
 
-function addExportButton(selectedPages) {
-
-  const toolbar = document.getElementById("toolbarViewerRight");
+function addExportButton(PDFViewerApplication, selectedPages) {
 
   if (document.getElementById("exportSelectedBtn")) return;
+
+  const toolbar = document.getElementById("toolbarViewerRight");
 
   const btn = document.createElement("button");
   btn.id = "exportSelectedBtn";
